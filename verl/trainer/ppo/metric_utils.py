@@ -77,6 +77,24 @@ def _compute_response_info(batch: DataProto) -> dict[str, Any]:
     )
 
 
+def compute_custom_metrics(batch: DataProto) -> dict[str, Any]:
+    advantages = batch.batch["advantages"]
+    response_mask = batch.batch["response_mask"]
+
+    # 选择response部分的advantages
+    masked_advantages = advantages * response_mask
+    # 计算sequence-level advantages
+    sequence_adv = masked_advantages.sum(dim=-1)
+    # 统计全零的sequence数量
+    zero_adv_count = torch.sum(sequence_adv == 0).item()
+    # 比例
+    zero_adv_ratio = zero_adv_count / sequence_adv.numel()
+
+    return {
+        "critic/advantages/zero_adv_ratio": zero_adv_ratio,
+    }
+
+
 def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str, Any]:
     """
     Computes various metrics from a batch of data for PPO training.
