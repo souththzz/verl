@@ -48,6 +48,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
+    compute_extra_reward_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
     compute_zero_adv_ratio,
@@ -1232,6 +1233,9 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
+                        # 记录额外奖励信息
+                        batch.non_tensor_batch["reward_extra_infos_dict"] = reward_extra_infos_dict
+
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
@@ -1345,6 +1349,7 @@ class RayPPOTrainer:
                 )
                 # collect metrics
                 metrics.update(compute_zero_adv_ratio(batch=batch))
+                metrics.update(compute_extra_reward_metrics(batch=batch))
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo

@@ -96,6 +96,20 @@ def compute_zero_adv_ratio(batch: DataProto) -> dict[str, Any]:
     }
 
 
+def compute_extra_reward_metrics(batch: DataProto) -> dict[str, Any]:
+    """记录额外reward相关指标"""
+    reward_extra_infos_dict = batch.non_tensor_batch.get("reward_extra_infos_dict", {})
+    metrics = {}
+    # 记录所有以"reward"结尾的指标
+    for key, value in reward_extra_infos_dict.items():
+        if key.endswith("reward"):
+            reward_values = np.array(value)
+            metrics[f"critic/{key}s/mean"] = reward_values.mean().item()
+            metrics[f"critic/{key}s/max"] = reward_values.max().item()
+            metrics[f"critic/{key}s/min"] = reward_values.min().item()
+    return metrics
+
+
 def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str, Any]:
     """
     Computes various metrics from a batch of data for PPO training.
