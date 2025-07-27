@@ -77,7 +77,8 @@ def _compute_response_info(batch: DataProto) -> dict[str, Any]:
     )
 
 
-def compute_custom_metrics(batch: DataProto) -> dict[str, Any]:
+def compute_zero_adv_ratio(batch: DataProto) -> dict[str, Any]:
+    """计算sequence-level的advantages中全零的比例"""
     advantages = batch.batch["advantages"]
     response_mask = batch.batch["response_mask"]
 
