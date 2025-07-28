@@ -390,6 +390,9 @@ def calc_classification_metrics(
     first_prompt = next(iter(prompt2var2vals.values()))
     num_samples = len(first_prompt[label_key])
 
+    # 3&4合并为"满足"
+    label_map = {2: "不满足", 3: "满足", 4: "满足"}
+
     # 对每个位置分别计算
     accuracies = []
     weighted_f1s = []
@@ -399,8 +402,11 @@ def calc_classification_metrics(
         labels = []
         preds = []
         for prompt, var2vals in prompt2var2vals.items():
-            labels.append(var2vals[label_key][pos])
-            preds.append(var2vals[pred_key][pos])
+            # labels.append(var2vals[label_key][pos])
+            # preds.append(var2vals[pred_key][pos])
+            # 3&4合并为"满足"
+            labels.append(label_map[var2vals[label_key][pos]])
+            preds.append(label_map[var2vals[pred_key][pos]])
 
         # 计算指标
         accuracies.append(accuracy_score(labels, preds))
@@ -476,8 +482,6 @@ def process_validation_metrics(
             for prompt, var2vals in prompt2var2vals.items():
                 for metric_name, values_by_pos in classification_metrics.items():
                     var2vals[metric_name] = values_by_pos
-
-        # TODO 再添加binary的情况（3&4合并为"满足"）
 
         for prompt, var2vals in prompt2var2vals.items():
             for var_name, var_vals in var2vals.items():
