@@ -99,10 +99,9 @@ def compute_zero_adv_ratio(batch: DataProto) -> dict[str, Any]:
 
 def compute_extra_reward_metrics(batch: DataProto) -> dict[str, Any]:
     """记录额外reward相关指标"""
-    reward_extra_infos_dict = batch.non_tensor_batch.get("reward_extra_infos_dict", {})
     metrics = {}
     # 记录所有以"reward"结尾的指标
-    for key, value in reward_extra_infos_dict.items():
+    for key, value in batch.non_tensor_batch.items():
         if key.endswith("reward"):
             reward_values = np.array(value)
             metrics[f"critic/{key}s/mean"] = reward_values.mean().item()
