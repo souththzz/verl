@@ -372,7 +372,7 @@ def calc_classification_metrics(
     prompt2var2vals: dict[str, dict[str, list[Any]]], label_key: str = "label", pred_key: str = "pred"
 ) -> dict[str, list[float]]:
     """
-    按照位置计算accuracy, weighted_f1, macro_f1等指标。
+    按照位置计算accuracy, weighted_f1, macro_f1等分类指标。
 
     Example:
         >>> prompt2var2vals = {
@@ -411,6 +411,64 @@ def calc_classification_metrics(
         "accuracy": accuracies,
         "weighted_f1": weighted_f1s,
         "macro_f1": macro_f1s,
+    }
+
+
+def calc_multilabel_classification_metrics(
+    prompt2var2vals: dict[str, dict[str, list[Any]]], label_key: str = "labels", pred_key: str = "preds"
+) -> dict[str, list[float]]:
+    """
+    按照位置计算accuracy, weighted_f1, macro_f1等多标签分类指标。
+    输入的labels和preds已经是二进制编码格式。
+
+    Example:
+        >>> prompt2var2vals = {
+        ...     "prompt1": {
+        ...         "labels": [[1, 0, 1], [0, 1, 0], [1, 1, 0]],
+        ...         "preds": [[1, 0, 0], [0, 1, 1], [1, 1, 0]]
+        ...     },
+        ...     "prompt2": {
+        ...         "labels": [[0, 1, 1], [1, 0, 1], [0, 0, 1]],
+        ...         "preds": [[0, 1, 1], [1, 0, 0], [1, 0, 1]]
+        ...     }
+        ... }
+        >>> calc_multilabel_classification_metrics(prompt2var2vals)
+        {
+            "micro_f1": [0.8, 0.4, 1.0],
+            "macro_f1": [0.75, 0.5, 1.0],
+            "weighted_f1": [0.8, 0.4, 1.0]
+        }
+    """
+    # 获取样本数量
+    first_prompt = next(iter(prompt2var2vals.values()))
+    num_samples = len(first_prompt[label_key])
+
+    # 对每个位置分别计算
+    micro_f1s = []
+    macro_f1s = []
+    weighted_f1s = []
+
+    for pos in range(num_samples):
+        # 收集当前位置的labels和preds
+        labels = []
+        preds = []
+        for prompt, var2vals in prompt2var2vals.items():
+            labels.append(var2vals[label_key][pos])
+            preds.append(var2vals[pred_key][pos])
+
+        # 计算指标
+        micro_f1 = f1_score(labels, preds, average="micro", zero_division=1)
+        macro_f1 = f1_score(labels, preds, average="macro", zero_division=1)
+        weighted_f1 = f1_score(labels, preds, average="weighted", zero_division=1)
+
+        micro_f1s.append(micro_f1)
+        macro_f1s.append(macro_f1)
+        weighted_f1s.append(weighted_f1)
+
+    return {
+        "micro_f1": micro_f1s,
+        "macro_f1": macro_f1s,
+        "weighted_f1": weighted_f1s,
     }
 
 
@@ -469,10 +527,18 @@ def process_validation_metrics(
     # Calculate metrics for each group
     data_src2prompt2var2metric = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
     for data_source, prompt2var2vals in data_src2prompt2var2vals.items():
-        # 计算分类指标(每个prompt的指标都相同)
         first_prompt_data = next(iter(prompt2var2vals.values()))
+
+        # 计算分类指标(每个prompt的指标都相同)
         if "label" in first_prompt_data and "pred" in first_prompt_data:
             classification_metrics = calc_classification_metrics(prompt2var2vals)
+            for prompt, var2vals in prompt2var2vals.items():
+                for metric_name, values_by_pos in classification_metrics.items():
+                    var2vals[metric_name] = values_by_pos
+
+        # 计算多标签分类指标
+        if "labels" in first_prompt_data and "preds" in first_prompt_data:
+            classification_metrics = calc_multilabel_classification_metrics(prompt2var2vals)
             for prompt, var2vals in prompt2var2vals.items():
                 for metric_name, values_by_pos in classification_metrics.items():
                     var2vals[metric_name] = values_by_pos
