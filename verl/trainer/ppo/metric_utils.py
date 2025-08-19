@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 import numpy as np
 import torch
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 from verl import DataProto
 from verl.utils.import_utils import deprecated
@@ -420,43 +420,76 @@ def calc_multilabel_classification_metrics(
     """
     按照位置计算accuracy, weighted_f1, macro_f1等多标签分类指标。
     输入的labels和preds已经是二进制编码格式。
+    如果存在candidates，则额外计算每个标签的precision、recall、f1。
 
     Example:
         >>> prompt2var2vals = {
         ...     "prompt1": {
         ...         "labels": [[1, 0, 1], [0, 1, 0], [1, 1, 0]],
-        ...         "preds": [[1, 0, 0], [0, 1, 1], [1, 1, 0]]
+        ...         "preds": [[1, 0, 0], [0, 1, 1], [1, 1, 0]],
+        ...         "candidates": [["A", "B", "C"], ["A", "B", "C"], ["A", "B", "C"]]
         ...     },
         ...     "prompt2": {
         ...         "labels": [[0, 1, 1], [1, 0, 1], [0, 0, 1]],
-        ...         "preds": [[0, 1, 1], [1, 0, 0], [1, 0, 1]]
+        ...         "preds": [[0, 1, 1], [1, 0, 0], [1, 0, 1]],
+        ...         "candidates": [["A", "B", "C"], ["A", "B", "C"], ["A", "B", "C"]]
         ...     }
         ... }
         >>> calc_multilabel_classification_metrics(prompt2var2vals)
         {
             "micro_f1": [0.8, 0.4, 1.0],
             "macro_f1": [0.75, 0.5, 1.0],
-            "weighted_f1": [0.8, 0.4, 1.0]
+            "weighted_f1": [0.8, 0.4, 1.0],
+            "A_precision": [1.0, 1.0, 1.0],
+            "A_recall": [1.0, 0.0, 1.0],
+            "A_f1": [1.0, 0.5, 1.0],
+            "B_precision": [1.0, 1.0, 0.0],
+            "B_recall": [1.0, 1.0, 1.0],
+            "B_f1": [1.0, 1.0, 0.5],
+            "C_precision": [0.0, 0.0, 1.0],
+            "C_recall": [0.0, 0.0, 1.0],
+            "C_f1": [0.0, 0.0, 1.0]
         }
     """
     # 获取样本数量
     first_prompt = next(iter(prompt2var2vals.values()))
     num_samples = len(first_prompt[label_key])
 
+    # 检查是否存在candidates
+    has_candidates = "candidates" in first_prompt
+
     # 对每个位置分别计算
     micro_f1s = []
     macro_f1s = []
     weighted_f1s = []
 
+    # 如果有candidates，为每个类别初始化列表
+    per_label_metrics = {}
+    if has_candidates:
+        # 获取所有可能的候选标签
+        all_candidates = set()
+        for prompt, var2vals in prompt2var2vals.items():
+            for candidates in var2vals["candidates"]:
+                all_candidates.update(candidates)
+
+        for candidate in all_candidates:
+            per_label_metrics[f"{candidate}_precision"] = []
+            per_label_metrics[f"{candidate}_recall"] = []
+            per_label_metrics[f"{candidate}_f1"] = []
+
     for pos in range(num_samples):
         # 收集当前位置的labels和preds
         labels = []
         preds = []
+        candidates_at_pos = None
+
         for prompt, var2vals in prompt2var2vals.items():
             labels.append(var2vals[label_key][pos])
             preds.append(var2vals[pred_key][pos])
+            if has_candidates and candidates_at_pos is None:
+                candidates_at_pos = var2vals["candidates"][pos]
 
-        # 计算指标
+        # 计算全局指标
         micro_f1 = f1_score(labels, preds, average="micro", zero_division=1)
         macro_f1 = f1_score(labels, preds, average="macro", zero_division=1)
         weighted_f1 = f1_score(labels, preds, average="weighted", zero_division=1)
@@ -465,11 +498,36 @@ def calc_multilabel_classification_metrics(
         macro_f1s.append(macro_f1)
         weighted_f1s.append(weighted_f1)
 
-    return {
+        # 如果有candidates，计算每个标签的precision、recall、f1
+        if has_candidates and candidates_at_pos:
+            # 计算每个标签的precision、recall、f1分数（不使用average参数）
+            per_class_precisions = precision_score(labels, preds, average=None, zero_division=1)
+            per_class_recalls = recall_score(labels, preds, average=None, zero_division=1)
+            per_class_f1s = f1_score(labels, preds, average=None, zero_division=1)
+
+            # 将分数映射到对应的候选标签
+            for i, candidate in enumerate(candidates_at_pos):
+                if i < len(per_class_precisions):
+                    per_label_metrics[f"{candidate}_precision"].append(per_class_precisions[i])
+                    per_label_metrics[f"{candidate}_recall"].append(per_class_recalls[i])
+                    per_label_metrics[f"{candidate}_f1"].append(per_class_f1s[i])
+
+            # 为其他候选标签（不在当前位置的candidates中）添加0值
+            for candidate_key in per_label_metrics:
+                candidate = candidate_key.replace("_precision", "").replace("_recall", "").replace("_f1", "")
+                if candidate not in candidates_at_pos:
+                    per_label_metrics[candidate_key].append(0.0)
+
+    result = {
         "micro_f1": micro_f1s,
         "macro_f1": macro_f1s,
         "weighted_f1": weighted_f1s,
     }
+
+    # 添加每个标签的precision、recall、f1
+    result.update(per_label_metrics)
+
+    return result
 
 
 def process_validation_metrics(
@@ -545,7 +603,7 @@ def process_validation_metrics(
 
         for prompt, var2vals in prompt2var2vals.items():
             for var_name, var_vals in var2vals.items():
-                if isinstance(var_vals[0], str):
+                if isinstance(var_vals[0], str) or isinstance(var_vals[0], list) and isinstance(var_vals[0][0], str):
                     continue
 
                 metric = {}
