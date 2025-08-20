@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 import numpy as np
 import torch
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report
 
 from verl import DataProto
 from verl.utils.import_utils import deprecated
@@ -372,7 +372,7 @@ def calc_classification_metrics(
     prompt2var2vals: dict[str, dict[str, list[Any]]], label_key: str = "label", pred_key: str = "pred"
 ) -> dict[str, list[float]]:
     """
-    按照位置计算accuracy, weighted_f1, macro_f1等分类指标。
+    按照位置计算accuracy, weighted_f1, macro_f1等分类指标，同时记录每个类别的precision、recall、f1-score。
 
     Example:
         >>> prompt2var2vals = {
@@ -383,17 +383,39 @@ def calc_classification_metrics(
         {
             "accuracy": [1.0, 0.0, 0.5],
             "weighted_f1": [1.0, 0.0, 0.3333],
-            "macro_f1": [1.0, 0.0, 0.3333]
+            "macro_f1": [1.0, 0.0, 0.3333],
+            "A_precision": [1.0, 0.0, 1.0],
+            "A_recall": [1.0, 0.0, 0.5],
+            "A_f1": [1.0, 0.0, 0.6667],
+            "B_precision": [1.0, 0.0, 0.0],
+            "B_recall": [0.0, 0.0, 0.5],
+            "B_f1": [0.0, 0.0, 0.0]
         }
     """
     # 获取样本数量
     first_prompt = next(iter(prompt2var2vals.values()))
     num_samples = len(first_prompt[label_key])
 
-    # 对每个位置分别计算
-    accuracies = []
-    weighted_f1s = []
-    macro_f1s = []
+    # 获取所有可能的类别
+    all_labels = set()
+    for prompt, var2vals in prompt2var2vals.items():
+        all_labels.update(var2vals[label_key])
+        all_labels.update(var2vals[pred_key])
+    all_labels = sorted(list(all_labels))
+
+    # 初始化结果字典
+    result = {
+        "accuracy": [],
+        "weighted_f1": [],
+        "macro_f1": [],
+    }
+
+    # 为每个类别初始化指标列表
+    for label in all_labels:
+        result[f"{label}_precision"] = []
+        result[f"{label}_recall"] = []
+        result[f"{label}_f1"] = []
+
     for pos in range(num_samples):
         # 收集当前位置的labels和preds
         labels = []
@@ -402,16 +424,32 @@ def calc_classification_metrics(
             labels.append(var2vals[label_key][pos])
             preds.append(var2vals[pred_key][pos])
 
-        # 计算指标
-        accuracies.append(accuracy_score(labels, preds))
-        weighted_f1s.append(f1_score(labels, preds, average="weighted", zero_division=0))
-        macro_f1s.append(f1_score(labels, preds, average="macro", zero_division=0))
+        # 计算accuracy
+        result["accuracy"].append(accuracy_score(labels, preds))
 
-    return {
-        "accuracy": accuracies,
-        "weighted_f1": weighted_f1s,
-        "macro_f1": macro_f1s,
-    }
+        # 使用classification_report获取详细报告
+        report = classification_report(
+            labels, preds, labels=all_labels, output_dict=True, zero_division=0
+        )
+
+        # 提取全局指标
+        result["weighted_f1"].append(report["weighted avg"]["f1-score"])
+        result["macro_f1"].append(report["macro avg"]["f1-score"])
+
+        # 提取每个类别的指标
+        for label in all_labels:
+            label_str = str(label)
+            if label_str in report:
+                result[f"{label}_precision"].append(report[label_str]["precision"])
+                result[f"{label}_recall"].append(report[label_str]["recall"])
+                result[f"{label}_f1"].append(report[label_str]["f1-score"])
+            else:
+                # 如果某个类别在当前位置没有出现，设为0
+                result[f"{label}_precision"].append(0.0)
+                result[f"{label}_recall"].append(0.0)
+                result[f"{label}_f1"].append(0.0)
+
+    return result
 
 
 def calc_multilabel_classification_metrics(
